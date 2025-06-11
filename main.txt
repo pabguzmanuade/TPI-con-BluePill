@@ -1,0 +1,117 @@
+#include <libopencm3/stm32/rcc.h>
+#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/usart.h>
+#include <libopencm3/cm3/systick.h>
+#include <stdio.h>
+
+// --- Macros del sistema ---
+#define LED_PORT GPIOC
+#define LED_PIN  GPIO13
+
+#define BTN_PORT GPIOA
+#define BTN_PIN  GPIO0
+
+// --- Variables globales ---
+volatile uint32_t system_millis = 0;
+uint32_t fichadas = 0;
+uint8_t estado_btn_anterior = 1;
+
+// --- Prototipos ---
+void delay_ms(uint32_t ms);
+void uart1_setup(void);
+void gpio_setup(void);
+void systick_setup(void);
+void print(const char *str);
+void print_uint(uint32_t n);
+
+// --- Implementaciones ---
+void sys_tick_handler(void) {
+    system_millis++;
+}
+
+void delay_ms(uint32_t ms) {
+    uint32_t start = system_millis;
+    while ((system_millis - start) < ms);
+}
+
+void uart1_setup(void) {
+    rcc_periph_clock_enable(RCC_GPIOA);
+    rcc_periph_clock_enable(RCC_USART1);
+
+    gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART1_TX);
+    gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO_USART1_RX);
+
+    usart_set_baudrate(USART1, 9600);
+    usart_set_databits(USART1, 8);
+    usart_set_stopbits(USART1, USART_STOPBITS_1);
+    usart_set_mode(USART1, USART_MODE_TX);
+    usart_set_parity(USART1, USART_PARITY_NONE);
+    usart_set_flow_control(USART1, USART_FLOWCONTROL_NONE);
+
+    usart_enable(USART1);
+}
+
+void gpio_setup(void) {
+    rcc_periph_clock_enable(RCC_GPIOC);
+    rcc_periph_clock_enable(RCC_GPIOA);
+
+    // LED como salida
+    gpio_set_mode(LED_PORT, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, LED_PIN);
+    gpio_set(LED_PORT, LED_PIN); // Apagar LED (activo bajo)
+
+    // Pulsador como entrada con pull-up interno
+    gpio_set_mode(BTN_PORT, GPIO_MODE_INPUT, GPIO_CNF_INPUT_PULL_UPDOWN, BTN_PIN);
+    gpio_set(BTN_PORT, BTN_PIN); // Activar pull-up en PA0
+}
+
+
+void systick_setup(void) {
+    systick_set_reload(rcc_ahb_frequency / 8000); // 1 ms si hay 8MHz HCLK
+    systick_clear();
+    systick_interrupt_enable();
+    systick_counter_enable();
+}
+
+void print(const char *str) {
+    while (*str) {
+        usart_send_blocking(USART1, *str++);
+    }
+}
+
+void print_uint(uint32_t n) {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%lu", n);
+    print(buf);
+}
+
+int main(void) {
+    rcc_clock_setup_in_hse_8mhz_out_72mhz();
+
+    gpio_setup();
+    uart1_setup();
+    systick_setup();
+
+    print("Sistema iniciado...\r\n");
+
+    while (1) {
+        // Detección de flanco de bajada
+        uint8_t estado_btn = gpio_get(BTN_PORT, BTN_PIN);
+
+        if (estado_btn == 0 && estado_btn_anterior == 1) {
+            fichadas++;
+
+            // Invertir estado LED
+            gpio_toggle(LED_PORT, LED_PIN);
+
+            print("Fichada ");
+            print_uint(fichadas);
+            print("\r\n");
+
+            delay_ms(200); // Antirebote
+        }
+
+        estado_btn_anterior = estado_btn;
+    }
+
+    return 0;
+}
