@@ -1,0 +1,82 @@
+#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/rcc.h>
+
+// --- Pines del DS1302 ---
+#define DS1302_GPIO    GPIOB
+#define DS1302_RST     GPIO12
+#define DS1302_CLK     GPIO13
+#define DS1302_IO      GPIO14
+
+// --- Delay corto (~1us) ---
+static void ds1302_delay(void) {
+    for (volatile int i = 0; i < 10; ++i) __asm__("nop");
+}
+
+// --- Configurar pin IO como salida ---
+static void io_output(void) {
+    gpio_set_mode(DS1302_GPIO, GPIO_MODE_OUTPUT_2_MHZ,
+                  GPIO_CNF_OUTPUT_PUSHPULL, DS1302_IO);
+}
+
+// --- Configurar pin IO como entrada ---
+static void io_input(void) {
+    gpio_set_mode(DS1302_GPIO, GPIO_MODE_INPUT,
+                  GPIO_CNF_INPUT_FLOAT, DS1302_IO);
+}
+
+// --- Inicialización básica del DS1302 ---
+void ds1302_init(void) {
+    rcc_periph_clock_enable(RCC_GPIOB);
+    gpio_set_mode(DS1302_GPIO, GPIO_MODE_OUTPUT_2_MHZ,
+                  GPIO_CNF_OUTPUT_PUSHPULL, DS1302_RST | DS1302_CLK);
+    gpio_clear(DS1302_GPIO, DS1302_RST | DS1302_CLK);
+    io_output();
+    gpio_clear(DS1302_GPIO, DS1302_IO);
+}
+
+// --- Escribir un byte al DS1302 (bit-bang) ---
+static void ds1302_write_byte(uint8_t byte) {
+    io_output();
+    for (int i = 0; i < 8; ++i) {
+        if (byte & 0x01) {
+            gpio_set(DS1302_GPIO, DS1302_IO);
+        } else {
+            gpio_clear(DS1302_GPIO, DS1302_IO);
+        }
+        gpio_set(DS1302_GPIO, DS1302_CLK);
+        ds1302_delay();
+        gpio_clear(DS1302_GPIO, DS1302_CLK);
+        byte >>= 1;
+    }
+}
+
+// --- Escribir a un registro del DS1302 ---
+static void ds1302_write_reg(uint8_t reg, uint8_t data) {
+    gpio_set(DS1302_GPIO, DS1302_RST);
+    ds1302_write_byte((reg << 1) | 0x00);  // Dirección de escritura
+    ds1302_write_byte(data);
+    gpio_clear(DS1302_GPIO, DS1302_RST);
+}
+
+// --- Convertir decimal a BCD ---
+static uint8_t dec_to_bcd(uint8_t dec) {
+    return ((dec / 10) << 4) | (dec % 10);
+}
+
+// --- Establecer hora manualmente en el RTC ---
+void ds1302_set_time(uint8_t h, uint8_t m, uint8_t s) {
+    ds1302_write_reg(7, 0x00);  // Deshabilitar escritura protegida
+    ds1302_write_reg(0, dec_to_bcd(s));  // Segundos
+    ds1302_write_reg(1, dec_to_bcd(m));  // Minutos
+    ds1302_write_reg(2, dec_to_bcd(h));  // Horas (formato 24h)
+    ds1302_write_reg(7, 0x80);  // Habilitar escritura protegida
+}
+
+int main(void) {
+    ds1302_init();
+
+    // 👉 Establecer hora aquí: (hh, mm, ss)
+    ds1302_set_time(12, 34, 50);  // ⏰ 12:34:50
+
+    while (1);
+}
