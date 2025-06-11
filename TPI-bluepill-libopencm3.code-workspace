@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"gpio.h": "c",
+			"iwdg.h": "c",
+			"nvic.h": "c",
+			"uart.h": "c",
+			"rcc.h": "c",
+			"registro.h": "c"
+		}
+	}
+}
